@@ -11,6 +11,12 @@ st.set_page_config(page_title="Smart Maintenance Dashboard", page_icon="🛠️"
 
 DEFAULT_CATALOG = "hive_metastore"
 DEFAULT_SCHEMA = "smart_maintenance"
+PLACEHOLDER_PREFIXES = (
+    "SEU_",
+    "adb-1234567890123456",
+    "/sql/1.0/warehouses/xxxxxxxxxxxxxxxx",
+    "dapiXXXXXXXXXXXXXXXX",
+)
 
 
 def _get_secret(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -27,6 +33,15 @@ def get_connection() -> sql.Connection:
     if not hostname or not http_path or not access_token:
         raise RuntimeError(
             "Configure DATABRICKS_SERVER_HOSTNAME, DATABRICKS_HTTP_PATH e DATABRICKS_ACCESS_TOKEN em .streamlit/secrets.toml ou variáveis de ambiente."
+        )
+
+    if (
+        any(str(hostname).startswith(prefix) for prefix in PLACEHOLDER_PREFIXES)
+        or any(str(http_path).startswith(prefix) for prefix in PLACEHOLDER_PREFIXES)
+        or any(str(access_token).startswith(prefix) for prefix in PLACEHOLDER_PREFIXES)
+    ):
+        raise RuntimeError(
+            "Os secrets do Databricks ainda estão com valores de exemplo. Atualize .streamlit/secrets.toml com os valores reais de DATABRICKS_SERVER_HOSTNAME, DATABRICKS_HTTP_PATH e DATABRICKS_ACCESS_TOKEN."
         )
 
     return sql.connect(
