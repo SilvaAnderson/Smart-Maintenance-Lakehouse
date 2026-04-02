@@ -1,0 +1,56 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  PYTHON_VERSION: "3.11"
+
+stages:
+  - stage: Test
+    displayName: Run Unit Tests
+    jobs:
+      - job: UnitTests
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "$(PYTHON_VERSION)"
+
+          - script: |
+              python -m pip install --upgrade pip
+              pip install -r requirements.txt
+              pip install pytest
+            displayName: Install dependencies
+
+          - script: |
+              pytest -q
+            displayName: Run tests
+
+  - stage: DeployDatabricks
+    displayName: Deploy to Databricks Workspace
+    dependsOn: Test
+    condition: succeeded()
+    jobs:
+      - job: Deploy
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "$(PYTHON_VERSION)"
+
+          - script: |
+              python -m pip install --upgrade pip
+              pip install databricks-cli
+            displayName: Install Databricks CLI
+
+          - script: |
+              databricks configure --host "$(DATABRICKS_HOST)" --token <<EOF
+              $(DATABRICKS_TOKEN)
+              EOF
+              databricks workspace import_dir . /Shared/smart-maintenance-lakehouse -o
+            displayName: Upload project to Databricks
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
