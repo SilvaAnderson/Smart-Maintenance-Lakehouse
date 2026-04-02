@@ -20,12 +20,15 @@ Além disso:
 
 - `src/01_ingest_bronze.py` → ingestão do `ai4i2020.xls` para Bronze Delta.
 - `src/run_medallion_pipeline.py` → execução única Bronze → Silver → Gold → CDF → otimização.
+- `src/streamlit_dashboard.py` → dashboard Streamlit conectado diretamente ao SQL Warehouse do Databricks.
 - `sql/02_silver_validated.sql` → transformação Silver + schema enforcement + generated columns.
 - `sql/02a_silver_data_quality.sql` → data quality da Silver (expectations estilo regras de negócio + auditoria).
+- `sql/02b_silver_constraints.sql` → enforcement de qualidade com `CHECK CONSTRAINT` na Silver.
 - `sql/03_gold_analytics.sql` → tabelas Gold para consumo analítico e ML.
 - `sql/04_cdf_auditoria.sql` → queries de auditoria com CDF.
 - `sql/05_otimizacao_time_travel.sql` → performance e time travel.
 - `src/data_quality.py` → regras de qualidade reutilizáveis para validação local.
+- `.streamlit/secrets.toml.example` → exemplo de configuração de conexão do dashboard com SQL Warehouse.
 - `tests/test_data_quality.py` → testes unitários de qualidade dos dados.
 - `azure-pipelines.yml` → exemplo de CI/CD no Azure DevOps para testes e deploy no Databricks.
 - `docs/architecture.md` → visão arquitetural e fluxo.
@@ -68,6 +71,30 @@ Para remover alertas de import no editor local:
 	- `DATABRICKS_HOST`
 	- `DATABRICKS_TOKEN`
 
+## Dashboard Streamlit com SQL Warehouse
+
+- O dashboard usa `databricks-sql-python` via pacote `databricks-sql-connector` para conectar diretamente ao SQL Warehouse do Databricks.
+- Isso mantém a camada de visualização desacoplada do processamento Spark/Delta.
+- Visualizações incluídas:
+	- Health Score por máquina em formato gauge, com risco baseado em `tool_wear_min`.
+	- Heatmap de correlação entre `air_temperature_k` e `torque_nm`.
+	- Distribuição de falhas (`TWF`, `HDF`, `PWF`, `OSF`, `RNF`).
+	- Filtros dinâmicos por `product_id` e `machine_type`.
+
+### Configuração
+
+Copie [.streamlit/secrets.toml.example](.streamlit/secrets.toml.example) para `.streamlit/secrets.toml` e preencha:
+
+- `DATABRICKS_SERVER_HOSTNAME`
+- `DATABRICKS_HTTP_PATH`
+- `DATABRICKS_ACCESS_TOKEN`
+- `AI4I_TARGET_CATALOG`
+- `AI4I_TARGET_SCHEMA`
+
+### Execução
+
+`streamlit run .\src\streamlit_dashboard.py`
+
 ## Execução única (recomendado para Job)
 
 Você pode executar tudo em sequência usando:
@@ -101,3 +128,4 @@ PowerShell:
 - Controle de progresso incremental em `etl_pipeline_control` (último `_commit_version` processado).
 - Auditoria com CDF e consultas históricas com Time Travel.
 - Otimização Delta aplicada durante as transformações com `OPTIMIZE ... ZORDER BY`.
+- Dashboard desacoplado consumindo o SQL Warehouse do Databricks via Streamlit.
