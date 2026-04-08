@@ -29,6 +29,8 @@ Além disso:
 - `sql/05_otimizacao_time_travel.sql` → performance e time travel.
 - `src/data_quality.py` → regras de qualidade reutilizáveis para validação local.
 - `.streamlit/secrets.toml.example` → exemplo de configuração de conexão do dashboard com SQL Warehouse.
+- `scripts/configure_databricks_env.ps1` → configura variáveis de ambiente Databricks para PowerShell.
+- `scripts/configure_databricks_env.cmd` → configura variáveis de ambiente Databricks para CMD.
 - `tests/test_data_quality.py` → testes unitários de qualidade dos dados.
 - `azure-pipelines.yml` → exemplo de CI/CD no Azure DevOps para testes e deploy no Databricks.
 - `docs/architecture.md` → visão arquitetural e fluxo.
@@ -90,6 +92,11 @@ Copie [.streamlit/secrets.toml.example](.streamlit/secrets.toml.example) para `.
 - `DATABRICKS_ACCESS_TOKEN`
 - `AI4I_TARGET_CATALOG`
 - `AI4I_TARGET_SCHEMA`
+
+Para configurar todas as conexões Databricks (Streamlit + CLI) por variáveis de ambiente:
+
+- PowerShell: `.\scripts\configure_databricks_env.ps1`
+- CMD: `scripts\configure_databricks_env.cmd`
 
 ### Execução
 
