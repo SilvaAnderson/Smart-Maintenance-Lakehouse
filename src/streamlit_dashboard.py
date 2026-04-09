@@ -10,7 +10,7 @@ from databricks import sql
 
 st.set_page_config(page_title="Smart Maintenance Dashboard", page_icon="🛠️", layout="wide")
 
-DEFAULT_CATALOG = "main"
+DEFAULT_CATALOG = "workspace"
 DEFAULT_SCHEMA = "smart_maintenance"
 FEATURES_TABLE_NAME = "gold_ai4i2020_features"
 SILVER_TABLE_NAME = "silver_ai4i2020_validated"
@@ -26,6 +26,11 @@ def _get_secret(name: str, default: Optional[str] = None) -> Optional[str]:
     if name in st.secrets:
         return st.secrets[name]
     return os.getenv(name, default)
+
+
+def _get_bool(name: str, default: bool = False) -> bool:
+    raw_value = _get_secret(name, str(default).lower())
+    return str(raw_value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def get_connection() -> Any:
@@ -110,8 +115,25 @@ def resolve_table_by_name(table_name: str, configured_catalog: str, configured_s
             if idx == 0:
                 return direct_table
             if idx == 1:
-                return f"{configured_schema}.{FEATURES_TABLE_NAME}"
-            return FEATURES_TABLE_NAME
+                return f"{configured_schema}.{table_name}"
+            return table_name
+        except Exception:
+            continue
+
+    show_checks = [
+        f"SHOW TABLES IN {configured_catalog}.{configured_schema} LIKE '{table_name}'",
+        f"SHOW TABLES IN {configured_schema} LIKE '{table_name}'",
+        f"SHOW TABLES LIKE '{table_name}'",
+    ]
+    for idx, show_query in enumerate(show_checks):
+        try:
+            shown = run_query(show_query)
+            if not shown.empty:
+                if idx == 0:
+                    return direct_table
+                if idx == 1:
+                    return f"{configured_schema}.{table_name}"
+                return table_name
         except Exception:
             continue
 
@@ -137,19 +159,51 @@ def resolve_table_by_name(table_name: str, configured_catalog: str, configured_s
     return None
 
 
+def resolve_failure_columns(features_table: str) -> dict[str, str]:
+    try:
+        sample = run_query(f"SELECT * FROM {features_table} LIMIT 1")
+        columns = {str(col).lower() for col in sample.columns}
+    except Exception:
+        columns = set()
+
+    if {"twf_label", "hdf_label", "pwf_label", "osf_label", "rnf_label"}.issubset(columns):
+        return {
+            "twf": "twf_label",
+            "hdf": "hdf_label",
+            "pwf": "pwf_label",
+            "osf": "osf_label",
+            "rnf": "rnf_label",
+        }
+
+    return {
+        "twf": "twf",
+        "hdf": "hdf",
+        "pwf": "pwf",
+        "osf": "osf",
+        "rnf": "rnf",
+    }
+
+
 @st.cache_data(ttl=300)
-def resolve_features_source(configured_catalog: str, configured_schema: str) -> tuple[str, dict[str, str], str]:
+def resolve_features_source(
+    configured_catalog: str,
+    configured_schema: str,
+    explicit_features_table: Optional[str] = None,
+) -> tuple[str, dict[str, str], str]:
+    if explicit_features_table:
+        explicit_features_table = explicit_features_table.strip()
+        run_query(f"SELECT 1 FROM {explicit_features_table} LIMIT 1")
+        return (
+            explicit_features_table,
+            resolve_failure_columns(explicit_features_table),
+            "Explicit",
+        )
+
     gold_table = resolve_table_by_name(FEATURES_TABLE_NAME, configured_catalog, configured_schema)
     if gold_table is not None:
         return (
             gold_table,
-            {
-                "twf": "twf_label",
-                "hdf": "hdf_label",
-                "pwf": "pwf_label",
-                "osf": "osf_label",
-                "rnf": "rnf_label",
-            },
+            resolve_failure_columns(gold_table),
             "Gold",
         )
 
@@ -157,13 +211,7 @@ def resolve_features_source(configured_catalog: str, configured_schema: str) -> 
     if silver_table is not None:
         return (
             silver_table,
-            {
-                "twf": "twf",
-                "hdf": "hdf",
-                "pwf": "pwf",
-                "osf": "osf",
-                "rnf": "rnf",
-            },
+            resolve_failure_columns(silver_table),
             "Silver",
         )
 
@@ -311,11 +359,17 @@ def main() -> None:
 
     catalog = _get_secret("AI4I_TARGET_CATALOG", DEFAULT_CATALOG)
     schema = _get_secret("AI4I_TARGET_SCHEMA", DEFAULT_SCHEMA)
+    explicit_features_table = _get_secret("AI4I_FEATURES_TABLE")
+    allow_local_fallback = _get_bool("AI4I_ALLOW_LOCAL_FALLBACK", False)
     use_databricks_source = True
     local_df: Optional[pd.DataFrame] = None
 
     try:
-        features_table, failure_columns, source_layer = resolve_features_source(catalog, schema)
+        features_table, failure_columns, source_layer = resolve_features_source(
+            catalog,
+            schema,
+            explicit_features_table,
+        )
         product_ids, machine_types = get_filter_options(features_table)
     except Exception as exc:
         message = str(exc)
@@ -325,7 +379,11 @@ def main() -> None:
                 "Hive Metastore está desabilitado neste workspace. Alternando automaticamente para Unity Catalog (`main`)."
             )
             try:
-                features_table, failure_columns, source_layer = resolve_features_source(catalog, schema)
+                features_table, failure_columns, source_layer = resolve_features_source(
+                    catalog,
+                    schema,
+                    explicit_features_table,
+                )
                 product_ids, machine_types = get_filter_options(features_table)
             except Exception as retry_exc:
                 st.error(
@@ -335,29 +393,37 @@ def main() -> None:
                 )
                 st.stop()
         else:
-            st.warning(
-                "Fonte Databricks não encontrada. Usando fallback local via arquivo ai4i2020.xls para visualização."
-            )
-            use_databricks_source = False
-            local_df = load_local_features_dataframe()
-            features_table = "ai4i2020.xls"
-            source_layer = "LocalFile"
-            failure_columns = {
-                "twf": "twf_label",
-                "hdf": "hdf_label",
-                "pwf": "pwf_label",
-                "osf": "osf_label",
-                "rnf": "rnf_label",
-            }
-            product_ids = sorted(local_df["product_id"].dropna().astype(str).unique().tolist())
-            machine_types = sorted(local_df["machine_type"].dropna().astype(str).unique().tolist())
+            if allow_local_fallback:
+                st.warning(
+                    "Fonte Databricks não encontrada. Usando fallback local via arquivo ai4i2020.xls para visualização."
+                )
+                use_databricks_source = False
+                local_df = load_local_features_dataframe()
+                features_table = "ai4i2020.xls"
+                source_layer = "LocalFile"
+                failure_columns = {
+                    "twf": "twf_label",
+                    "hdf": "hdf_label",
+                    "pwf": "pwf_label",
+                    "osf": "osf_label",
+                    "rnf": "rnf_label",
+                }
+                product_ids = sorted(local_df["product_id"].dropna().astype(str).unique().tolist())
+                machine_types = sorted(local_df["machine_type"].dropna().astype(str).unique().tolist())
+            else:
+                st.error(
+                    "Fonte Databricks não encontrada e fallback local está desabilitado. "
+                    "Ajuste AI4I_TARGET_CATALOG/AI4I_TARGET_SCHEMA, ou defina AI4I_FEATURES_TABLE com o nome completo da tabela."
+                )
+                st.info(
+                    "Exemplo: AI4I_FEATURES_TABLE = 'main.smart_maintenance.gold_ai4i2020_features'"
+                )
+                st.stop()
 
     with st.sidebar:
         st.header("Filtros Dinâmicos")
-        selected_product_id = st.selectbox("Product ID", ["Todos"] + product_ids)
-        selected_machine_type = st.selectbox("Type", ["Todos"] + machine_types)
-        st.caption(f"Tabela usada ({source_layer}): {features_table}")
-        st.markdown("A conexão usa o SQL Warehouse do Databricks para manter a visualização desacoplada do cluster de processamento.")
+        selected_product_id = st.selectbox("Produto", ["Todos"] + product_ids)
+        selected_machine_type = st.selectbox("Tipos", ["Todos"] + machine_types)
 
     if use_databricks_source:
         where_clause, params = build_filter_clause(selected_product_id, selected_machine_type)
