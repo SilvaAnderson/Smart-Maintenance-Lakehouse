@@ -360,7 +360,7 @@ def main() -> None:
     catalog = _get_secret("AI4I_TARGET_CATALOG", DEFAULT_CATALOG)
     schema = _get_secret("AI4I_TARGET_SCHEMA", DEFAULT_SCHEMA)
     explicit_features_table = _get_secret("AI4I_FEATURES_TABLE")
-    allow_local_fallback = _get_bool("AI4I_ALLOW_LOCAL_FALLBACK", False)
+    allow_local_fallback = _get_bool("AI4I_ALLOW_LOCAL_FALLBACK", True)
     use_databricks_source = True
     local_df: Optional[pd.DataFrame] = None
 
@@ -424,6 +424,10 @@ def main() -> None:
         st.header("Filtros Dinâmicos")
         selected_product_id = st.selectbox("Produto", ["Todos"] + product_ids)
         selected_machine_type = st.selectbox("Tipos", ["Todos"] + machine_types)
+        if use_databricks_source:
+            st.success("Fonte: Databricks SQL Warehouse")
+        else:
+            st.warning("Fonte: Fallback local (ai4i2020.xls)")
 
     if use_databricks_source:
         where_clause, params = build_filter_clause(selected_product_id, selected_machine_type)
